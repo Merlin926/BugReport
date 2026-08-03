@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="按标签汇总的平均 FPS 与完整采集帧率波动图">
+<title>PC 包性能报告</title>
+<style>
+:root {
+  color-scheme: light;
+  --page: #f9f9f7;
+  --surface: #fcfcfb;
+  --ink: #0b0b0b;
+  --ink-2: #52514e;
+  --muted: #898781;
+  --grid: #e1e0d9;
+  --baseline: #c3c2b7;
+  --border: rgba(11, 11, 11, 0.10);
+  --accent: #2a78d6;
+  --accent-wash: rgba(42, 120, 214, 0.10);
+  --risk: #d03b3b;
+  --s1: #898781;
+  --s2: #2a78d6;
+  --s3: #eda100;
+  --s4: #4a3aa7;
+  --s5: #008300;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --page: #0d0d0d;
+    --surface: #1a1a19;
+    --ink: #ffffff;
+    --ink-2: #c3c2b7;
+    --muted: #a5a39d;
+    --grid: #2c2c2a;
+    --baseline: #4a4a46;
+    --border: rgba(255, 255, 255, 0.10);
+    --accent: #3987e5;
+    --accent-wash: rgba(57, 135, 229, 0.16);
+    --risk: #e66767;
+    --s1: #a5a39d;
+    --s2: #3987e5;
+    --s3: #d69a20;
+    --s4: #9085e9;
+    --s5: #25a65a;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--ink);
+  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+}
+.wrap {
+  width: min(100%, 1100px);
+  margin: 0 auto;
+  padding: 32px 24px 56px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+h1 { margin: 0 0 3px; font-size: 25px; font-weight: 650; letter-spacing: -0.02em; }
+.sub { color: var(--muted); }
+.kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+.tile, .card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.tile {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  padding: 16px 18px;
+  appearance: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 120ms ease, background-color 120ms ease, transform 120ms ease;
+}
+.tile::before {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--tile-color);
+  content: "";
+}
+.tile:nth-child(1) { --tile-color: var(--s2); }
+.tile:nth-child(2) { --tile-color: var(--s5); }
+.tile:nth-child(3) { --tile-color: var(--s3); }
+.tile:hover { border-color: var(--tile-color); transform: translateY(-1px); }
+.tile[aria-pressed="true"] {
+  border-color: var(--tile-color);
+  background: color-mix(in srgb, var(--tile-color) 7%, var(--surface));
+}
+.tile:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.label { margin-bottom: 6px; color: var(--ink-2); font-size: 14.5px; font-weight: 600; }
+.value { font-size: 38px; font-weight: 650; line-height: 1.08; font-variant-numeric: tabular-nums; }
+.unit { margin-left: 5px; color: var(--muted); font-size: 15px; font-weight: 600; }
+.sample { margin-top: 7px; color: var(--muted); font-size: 13px; }
+.card { padding: 20px 24px; }
+.stage-detail {
+  --detail-color: var(--s2);
+  position: relative;
+  overflow: hidden;
+}
+.stage-detail::before {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 3px;
+  background: var(--detail-color);
+  content: "";
+}
+.stage-detail-body { margin-top: 16px; }
+.stage-detail.has-media .stage-detail-body {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(360px, 1.2fr);
+  gap: 24px;
+  align-items: start;
+}
+.stage-description { margin: 0; color: var(--ink-2); font-size: 15px; }
+.stage-notes { display: grid; gap: 8px; margin-top: 16px; }
+.stage-note {
+  margin: 0;
+  padding: 10px 12px;
+  border-left: 3px solid var(--detail-color);
+  border-radius: 0 7px 7px 0;
+  background: var(--accent-wash);
+  color: var(--ink-2);
+  font-size: 14px;
+}
+.stage-note strong { display: block; margin-bottom: 2px; color: var(--ink); font-size: 12px; }
+.stage-media { display: grid; gap: 12px; }
+.stage-media[hidden] { display: none; }
+.stage-media figure { margin: 0; }
+.stage-image {
+  display: block;
+  width: 100%;
+  max-height: 440px;
+  object-fit: contain;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--page);
+}
+.stage-media figcaption { margin-top: 7px; color: var(--muted); font-size: 13px; }
+.card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+h2 { margin: 0; font-size: 18px; font-weight: 650; }
+.sub { margin-top: 2px; font-size: 14px; }
+.legend { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.chart-legend { justify-content: flex-end; margin-bottom: 14px; }
+.legend-item { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-2); font-size: 13.5px; }
+.swatch { width: 10px; height: 10px; border-radius: 2px; }
+.chart-scroll { width: 100%; overflow-x: auto; }
+#fps-chart { display: block; width: 100%; height: auto; min-width: 680px; }
+.axis-label { fill: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.band-label { fill: var(--ink-2); font-size: 11px; font-weight: 600; }
+.tip {
+  position: fixed;
+  z-index: 10;
+  pointer-events: none;
+  opacity: 0;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.16);
+  color: var(--ink);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  transition: opacity 80ms ease;
+}
+#fps-chart:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+@media (prefers-reduced-motion: reduce) {
+  * { scroll-behavior: auto !important; transition: none !important; }
+}
+@media (max-width: 560px) {
+  .wrap { padding: 24px 16px 40px; }
+  .kpis { grid-template-columns: 1fr; }
+  .card { padding: 18px 16px; }
+  #fps-chart { min-width: 620px; }
+  .legend { gap: 8px 12px; }
+  .stage-detail.has-media .stage-detail-body { display: block; }
+  .stage-media { margin-top: 18px; }
+}
+</style>
+
+<style>
+.combined-switch{position:sticky;top:0;z-index:2000;display:flex;justify-content:flex-end;gap:8px;padding:9px 16px;background:var(--surface);border-bottom:1px solid var(--border);box-shadow:0 4px 16px rgba(11,11,11,.06);font-family:system-ui,-apple-system,"Segoe UI","Microsoft YaHei","PingFang SC",sans-serif}
+.combined-switch a{border:1px solid var(--border);border-radius:7px;padding:6px 13px;color:var(--ink-2);background:transparent;font-size:14px;font-weight:650;text-decoration:none;line-height:1.2}
+.combined-switch a:hover{background:var(--accent-wash);color:var(--ink)}
+.combined-switch a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.combined-switch a[aria-current="page"]{background:var(--accent-wash);color:var(--ink);border-color:var(--accent)}
+@media(max-width:680px){.combined-switch{justify-content:center;padding:8px 10px}.combined-switch a{flex:1;text-align:center}}
+</style>
+</head>
+<body><nav class="combined-switch" aria-label="综合周报切换" role="tablist"><a href="./综合周报_20260724_20260731_直显.html" role="tab" aria-selected="false">Bug 遗留</a><a href="./综合周报_20260724_20260731_直显_性能.html" role="tab" aria-selected="true" aria-current="page">性能报告</a></nav>
+<main class="wrap">
+  <header>
+    <h1 id="title"></h1>
+  </header>
+
+  <section class="kpis" id="averages" aria-label="各标签平均帧率"></section>
+
+  <section class="card stage-detail" id="stage-detail" aria-labelledby="stage-detail-title" aria-live="polite">
+    <h2 id="stage-detail-title"></h2>
+    <div class="stage-detail-body">
+      <div>
+        <p class="stage-description" id="stage-description"></p>
+        <div class="stage-notes" id="stage-notes"></div>
+      </div>
+      <div class="stage-media" id="stage-media" hidden></div>
+    </div>
+  </section>
+
+  <section class="card" aria-label="FPS 图表">
+    <div class="legend chart-legend" id="legend" aria-label="图例"></div>
+    <div class="chart-scroll">
+      <svg id="fps-chart" viewBox="0 0 1000 390" role="img" tabindex="0" aria-label="FPS 随采集时间变化的折线图"></svg>
+    </div>
+  </section>
+
+</main>
+<div class="tip" id="tip" role="status" aria-live="polite"></div>
+<script id="report-data" type="application/json">{"title":"PC 包性能报告","meta":"采集时间 2026-08-03 18:30:36 · 时长 306.4 秒 · 共 14,536 帧","averages":[{"label":"ENTER_SCENE","value":65.0,"note":"基于现有 70.9 秒（未录满 100 秒）"},{"label":"MOVE_AROUND_MAP","value":46.1,"note":"100.0 秒统计窗口"},{"label":"IN_REGION","value":32.3,"note":"100.0 秒统计窗口"}],"points":[[0.0,67.24],[0.383,68.19],[0.766,67.77],[1.149,67.56],[1.532,67.92],[1.915,62.42],[2.298,68.72],[2.681,68.22],[3.064,68.14],[3.447,67.68],[3.83,68.91],[4.213,68.63],[4.596,68.61],[4.979,67.52],[5.362,67.69],[5.745,40.11],[6.128,59.95],[6.511,63.05],[6.894,63.16],[7.277,63.64],[7.66,63.69],[8.043,64.85],[8.426,65.09],[8.809,62.71],[9.192,64.05],[9.575,64.84],[9.958,65.24],[10.341,64.44],[10.724,64.66],[11.107,64.47],[11.49,65.12],[11.873,64.84],[12.256,64.08],[12.639,59.48],[13.022,46.1],[13.405,50.81],[13.788,45.09],[14.171,50.82],[14.554,50.83],[14.937,49.39],[15.32,49.29],[15.703,50.93],[16.086,25.53],[16.469,36.89],[16.852,41.47],[17.235,41.89],[17.618,41.42],[18.001,41.91],[18.384,47.82],[18.767,58.48],[19.15,55.38],[19.533,58.66],[19.916,47.83],[20.299,59.37],[20.682,54.71],[21.065,61.02],[21.448,46.51],[21.831,31.81],[22.214,32.14],[22.597,32.07],[22.98,32.09],[23.363,28.44],[23.746,30.33],[24.129,32.54],[24.512,59.96],[24.895,59.7],[25.278,60.08],[25.661,59.04],[26.044,58.79],[26.427,58.62],[26.81,56.56],[27.193,59.02],[27.576,60.18],[27.959,59.32],[28.342,59.87],[28.725,60.12],[29.108,57.85],[29.491,54.32],[29.874,58.38],[30.257,59.15],[30.64,61.23],[31.023,60.26],[31.406,61.71],[31.789,60.78],[32.172,62.04],[32.555,62.01],[32.938,61.23],[33.321,62.35],[33.704,62.18],[34.087,60.47],[34.47,60.87],[34.853,61.49],[35.236,62.18],[35.619,60.5],[36.002,61.75],[36.385,61.29],[36.768,61.82],[37.151,61.92],[37.534,61.6],[37.917,61.82],[38.3,61.98],[38.683,62.14],[39.066,61.63],[39.449,62.19],[39.832,60.6],[40.215,61.66],[40.598,61.43],[40.981,66.19],[41.364,72.38],[41.747,72.52],[42.13,72.91],[42.513,68.13],[42.896,71.5],[43.279,70.74],[43.662,72.87],[44.045,71.44],[44.428,70.44],[44.811,67.66],[45.194,70.34],[45.577,70.91],[45.96,66.74],[46.343,70.41],[46.726,71.6],[47.109,71.53],[47.492,69.46],[47.876,71.35],[48.259,69.42],[48.642,69.89],[49.025,69.53],[49.408,70.6],[49.791,71.25],[50.174,71.22],[50.557,71.72],[50.94,73.0],[51.323,73.22],[51.706,73.39],[52.089,73.47],[52.472,74.31],[52.855,74.2],[53.238,74.69],[53.621,74.08],[54.004,73.97],[54.387,74.17],[54.77,73.85],[55.153,72.73],[55.536,72.16],[55.919,71.73],[56.302,71.93],[56.685,72.92],[57.068,72.93],[57.451,71.53],[57.834,71.97],[58.217,71.16],[58.6,73.62],[58.983,74.07],[59.366,74.7],[59.749,73.28],[60.132,72.05],[60.515,72.19],[60.898,71.31],[61.281,71.08],[61.664,70.81],[62.047,72.66],[62.43,71.89],[62.813,74.19],[63.196,72.75],[63.579,73.22],[63.962,74.29],[64.345,74.24],[64.728,74.67],[65.111,74.09],[65.494,74.15],[65.877,74.91],[66.26,74.03],[66.643,74.7],[67.026,74.55],[67.409,74.56],[67.792,75.02],[68.175,74.06],[68.558,74.23],[68.941,74.73],[69.324,74.52],[69.707,74.65],[70.09,74.1],[70.473,74.23],[70.856,74.07],[71.239,73.47],[71.622,73.86],[72.005,73.37],[72.388,72.55],[72.771,74.22],[73.154,74.41],[73.537,74.39],[73.92,74.62],[74.303,74.49],[74.686,74.45],[75.069,74.68],[75.452,74.54],[75.835,74.57],[76.218,74.41],[76.601,74.68],[76.984,74.6],[77.367,74.54],[77.75,74.35],[78.133,74.83],[78.516,74.12],[78.899,74.67],[79.282,74.29],[79.665,74.67],[80.048,74.62],[80.431,73.97],[80.814,75.02],[81.197,74.72],[81.58,72.3],[81.963,72.1],[82.346,71.23],[82.729,67.69],[83.112,73.8],[83.495,72.98],[83.878,72.57],[84.261,69.52],[84.644,71.63],[85.027,70.99],[85.41,72.84],[85.793,72.97],[86.176,69.93],[86.559,72.03],[86.942,72.08],[87.325,73.37],[87.708,75.13],[88.091,74.45],[88.474,74.57],[88.857,74.75],[89.24,75.21],[89.623,74.79],[90.006,75.48],[90.389,74.47],[90.772,73.29],[91.155,72.99],[91.538,73.48],[91.921,45.85],[92.304,55.34],[92.687,67.81],[93.07,67.8],[93.453,68.37],[93.836,67.98],[94.219,65.17],[94.602,65.94],[94.985,68.13],[95.368,47.47],[95.751,49.53],[96.134,49.02],[96.517,52.25],[96.9,56.16],[97.283,58.76],[97.666,54.39],[98.049,56.42],[98.432,56.3],[98.815,64.28],[99.198,64.34],[99.581,52.66],[99.964,56.59],[100.347,55.89],[100.73,42.31],[101.113,48.75],[101.496,47.75],[101.879,48.97],[102.262,47.15],[102.645,48.08],[103.028,46.26],[103.411,46.08],[103.794,45.08],[104.177,50.79],[104.56,56.69],[104.943,59.59],[105.326,57.29],[105.709,48.74],[106.092,46.39],[106.475,48.12],[106.858,47.92],[107.241,48.0],[107.624,37.03],[108.007,42.96],[108.39,44.84],[108.773,40.2],[109.156,45.86],[109.539,53.29],[109.922,52.78],[110.305,52.65],[110.688,47.01],[111.071,42.76],[111.454,47.53],[111.837,48.29],[112.22,47.39],[112.603,47.06],[112.986,47.42],[113.369,47.84],[113.752,48.12],[114.135,48.91],[114.518,48.77],[114.901,48.88],[115.284,48.74],[115.667,48.51],[116.05,47.44],[116.433,48.36],[116.816,49.05],[117.199,47.91],[117.582,44.67],[117.965,43.83],[118.348,46.86],[118.731,44.11],[119.114,44.42],[119.497,44.78],[119.88,44.58],[120.263,44.79],[120.646,44.6],[121.029,40.26],[121.412,43.66],[121.795,43.26],[122.178,42.57],[122.561,44.09],[122.944,42.95],[123.327,43.72],[123.71,43.49],[124.093,42.5],[124.476,42.67],[124.859,41.39],[125.242,41.73],[125.625,41.73],[126.008,42.42],[126.391,42.09],[126.774,42.79],[127.157,41.7],[127.54,42.27],[127.923,43.6],[128.306,43.85],[128.689,39.53],[129.072,42.95],[129.455,43.6],[129.838,44.07],[130.221,44.07],[130.604,43.28],[130.987,43.08],[131.37,42.54],[131.753,44.17],[132.136,43.33],[132.519,43.91],[132.902,41.64],[133.285,43.49],[133.668,43.01],[134.051,41.96],[134.434,44.3],[134.817,44.39],[135.2,44.48],[135.583,44.35],[135.966,44.45],[136.349,44.48],[136.732,44.23],[137.115,43.75],[137.498,38.49],[137.881,42.85],[138.264,42.35],[138.647,42.61],[139.03,42.63],[139.413,42.51],[139.796,42.73],[140.179,43.16],[140.562,43.54],[140.945,42.4],[141.328,43.02],[141.711,44.44],[142.094,44.67],[142.477,44.31],[142.86,42.75],[143.244,38.81],[143.627,42.98],[144.01,43.92],[144.393,44.34],[144.776,45.28],[145.159,48.83],[145.542,49.34],[145.925,49.32],[146.308,49.12],[146.691,49.45],[147.074,49.53],[147.457,50.3],[147.84,49.18],[148.223,50.26],[148.606,49.59],[148.989,47.49],[149.372,48.79],[149.755,46.28],[150.138,46.86],[150.521,48.21],[150.904,48.0],[151.287,47.0],[151.67,42.57],[152.053,41.9],[152.436,42.84],[152.819,46.81],[153.202,43.26],[153.585,43.68],[153.968,47.51],[154.351,48.12],[154.734,51.42],[155.117,53.86],[155.5,49.52],[155.883,52.61],[156.266,52.01],[156.649,52.18],[157.032,51.91],[157.415,51.81],[157.798,51.14],[158.181,48.86],[158.564,49.59],[158.947,43.17],[159.33,37.96],[159.713,40.07],[160.096,43.6],[160.479,46.24],[160.862,42.87],[161.245,42.65],[161.628,34.74],[162.011,31.75],[162.394,33.2],[162.777,36.62],[163.16,34.53],[163.543,32.63],[163.926,35.76],[164.309,32.69],[164.692,37.11],[165.075,38.81],[165.458,40.0],[165.841,40.45],[166.224,41.84],[166.607,42.41],[166.99,40.88],[167.373,43.05],[167.756,43.38],[168.139,42.92],[168.522,42.53],[168.905,42.31],[169.288,41.48],[169.671,42.33],[170.054,41.11],[170.437,41.62],[170.82,40.84],[171.203,40.34],[171.586,40.45],[171.969,34.47],[172.352,37.86],[172.735,37.35],[173.118,36.46],[173.501,37.57],[173.884,37.79],[174.267,37.7],[174.65,38.03],[175.033,36.72],[175.416,37.57],[175.799,38.14],[176.182,38.05],[176.565,38.83],[176.948,41.59],[177.331,39.85],[177.714,41.46],[178.097,42.6],[178.48,41.35],[178.863,44.0],[179.246,44.19],[179.629,44.68],[180.012,44.71],[180.395,46.3],[180.778,40.08],[181.161,46.32],[181.544,46.87],[181.927,45.13],[182.31,44.69],[182.693,43.27],[183.076,43.12],[183.459,45.04],[183.842,43.9],[184.225,45.77],[184.608,45.29],[184.991,48.92],[185.374,43.6],[185.757,48.43],[186.14,48.73],[186.523,47.0],[186.906,46.09],[187.289,47.22],[187.672,49.89],[188.055,48.61],[188.438,48.4],[188.821,50.64],[189.204,50.12],[189.587,50.59],[189.97,50.67],[190.353,50.45],[190.736,50.76],[191.119,49.14],[191.502,50.19],[191.885,50.66],[192.268,51.21],[192.651,51.86],[193.034,52.05],[193.417,51.88],[193.8,51.19],[194.183,50.67],[194.566,50.6],[194.949,51.32],[195.332,51.57],[195.715,49.3],[196.098,51.88],[196.481,51.92],[196.864,50.84],[197.247,51.02],[197.63,50.97],[198.013,51.89],[198.396,51.32],[198.779,51.35],[199.162,50.87],[199.545,50.21],[199.928,46.06],[200.311,48.36],[200.694,47.32],[201.077,47.92],[201.46,42.77],[201.843,45.4],[202.226,44.32],[202.609,41.91],[202.992,34.76],[203.375,32.06],[203.758,38.93],[204.141,30.02],[204.524,28.13],[204.907,27.14],[205.29,31.65],[205.673,28.55],[206.056,31.58],[206.439,33.34],[206.822,33.54],[207.205,34.14],[207.588,34.9],[207.971,35.59],[208.354,35.2],[208.737,34.7],[209.12,28.75],[209.503,20.54],[209.886,29.86],[210.269,31.73],[210.652,31.97],[211.035,31.54],[211.418,30.9],[211.801,30.42],[212.184,30.35],[212.567,28.98],[212.95,25.92],[213.333,29.11],[213.716,30.22],[214.099,30.3],[214.482,30.44],[214.865,30.03],[215.248,29.09],[215.631,30.42],[216.014,29.63],[216.397,28.48],[216.78,29.48],[217.163,28.62],[217.546,27.62],[217.929,28.38],[218.312,28.83],[218.695,28.71],[219.078,28.38],[219.461,27.09],[219.844,23.59],[220.227,26.32],[220.61,23.18],[220.993,25.04],[221.376,24.27],[221.759,25.85],[222.142,25.63],[222.525,25.64],[222.908,25.73],[223.291,24.23],[223.674,22.51],[224.057,24.76],[224.44,25.66],[224.823,26.18],[225.206,26.06],[225.589,25.42],[225.972,24.6],[226.355,23.03],[226.738,23.66],[227.121,24.69],[227.504,24.39],[227.887,24.56],[228.27,24.69],[228.653,24.75],[229.036,25.45],[229.419,25.5],[229.802,26.44],[230.185,27.05],[230.568,28.83],[230.951,27.38],[231.334,27.97],[231.717,27.35],[232.1,28.14],[232.483,27.97],[232.866,28.71],[233.249,28.59],[233.632,25.82],[234.015,26.24],[234.398,27.49],[234.781,26.59],[235.164,26.2],[235.547,25.38],[235.93,25.3],[236.313,26.41],[236.696,26.22],[237.079,25.24],[237.462,28.11],[237.845,29.47],[238.228,30.03],[238.612,30.5],[238.995,30.81],[239.378,31.17],[239.761,30.24],[240.144,30.41],[240.527,27.79],[240.91,29.08],[241.293,30.27],[241.676,27.81],[242.059,23.11],[242.442,29.95],[242.825,31.23],[243.208,30.07],[243.591,31.22],[243.974,31.26],[244.357,32.18],[244.74,31.89],[245.123,32.1],[245.506,32.01],[245.889,32.21],[246.272,32.52],[246.655,31.5],[247.038,30.61],[247.421,30.28],[247.804,29.62],[248.187,28.29],[248.57,28.15],[248.953,29.2],[249.336,29.89],[249.719,30.48],[250.102,30.93],[250.485,31.36],[250.868,31.72],[251.251,31.79],[251.634,32.15],[252.017,32.81],[252.4,33.15],[252.783,15.09],[253.166,22.25],[253.549,33.58],[253.932,33.52],[254.315,30.67],[254.698,31.12],[255.081,32.23],[255.464,33.28],[255.847,33.34],[256.23,33.68],[256.613,33.57],[256.996,32.6],[257.379,32.87],[257.762,32.54],[258.145,31.72],[258.528,32.14],[258.911,32.78],[259.294,33.26],[259.677,32.96],[260.06,33.51],[260.443,33.67],[260.826,33.36],[261.209,33.5],[261.592,33.32],[261.975,33.73],[262.358,34.79],[262.741,34.62],[263.124,33.63],[263.507,34.78],[263.89,34.91],[264.273,35.0],[264.656,33.1],[265.039,35.05],[265.422,35.05],[265.805,34.98],[266.188,34.89],[266.571,34.56],[266.954,34.55],[267.337,34.92],[267.72,35.21],[268.103,34.9],[268.486,35.19],[268.869,35.39],[269.252,34.12],[269.635,36.89],[270.018,37.41],[270.401,38.27],[270.784,37.29],[271.167,38.23],[271.55,37.01],[271.933,34.54],[272.316,35.65],[272.699,33.87],[273.082,34.55],[273.465,33.38],[273.848,34.68],[274.231,34.63],[274.614,35.87],[274.997,35.44],[275.38,34.57],[275.763,34.4],[276.146,34.91],[276.529,36.49],[276.912,36.64],[277.295,38.33],[277.678,39.37],[278.061,40.92],[278.444,42.02],[278.827,41.82],[279.21,41.86],[279.593,42.52],[279.976,42.7],[280.359,42.76],[280.742,42.19],[281.125,41.53],[281.508,39.78],[281.891,39.35],[282.274,39.73],[282.657,38.98],[283.04,41.19],[283.423,40.78],[283.806,43.53],[284.189,45.09],[284.572,45.28],[284.955,46.34],[285.338,46.06],[285.721,46.35],[286.104,45.25],[286.487,43.82],[286.87,42.37],[287.253,42.18],[287.636,42.2],[288.019,41.95],[288.402,41.37],[288.785,41.03],[289.168,39.85],[289.551,39.6],[289.934,37.68],[290.317,38.64],[290.7,36.27],[291.083,38.96],[291.466,38.25],[291.849,37.6],[292.232,36.75],[292.615,34.94],[292.998,34.55],[293.381,34.27],[293.764,32.66],[294.147,31.65],[294.53,31.45],[294.913,31.15],[295.296,31.41],[295.679,30.32],[296.062,29.78],[296.445,29.62],[296.828,31.29],[297.211,31.74],[297.594,31.29],[297.977,31.2],[298.36,33.45],[298.743,33.37],[299.126,32.25],[299.509,31.97],[299.892,32.07],[300.275,32.3],[300.658,32.61],[301.041,33.63],[301.424,33.78],[301.807,33.76],[302.19,32.39],[302.573,32.04],[302.956,32.76],[303.339,33.31],[303.722,33.45],[304.105,32.91],[304.488,27.15],[304.871,31.92],[305.254,32.53],[305.637,31.73],[306.02,32.27]],"bands":[{"label":"ENTER_SCENE","start":9.931044,"end":80.889044,"color":"s2"},{"label":"MOVE_AROUND_MAP","start":90.889044,"end":190.889044,"color":"s5"},{"label":"IN_REGION","start":203.289044,"end":303.289044,"color":"s3"}],"span":306.403213,"source":"数据源：capture.csv、tags.csv；平均 FPS = 1000 × 帧数 ÷ 有效帧时总和。"}</script>
+<script id="stage-data" type="application/json">{"ENTER_SCENE":{"description":"成功进入Scene之后，保持在场景中静止不动","notes":[],"images":[]},"MOVE_AROUND_MAP":{"description":"在地图中开车移动，不进入Region，途中会加载Region，途径野怪","notes":["从起始点（140，0，273）出发，沿路线行驶，到达ShoppingMall（621，1，248）"],"images":[{"src":"movingAround.jpg","alt":"MOVE_AROUND_MAP 阶段地图行驶路线截图","caption":"MOVE_AROUND_MAP 阶段截图"}]},"IN_REGION":{"description":"在Region中移动，开火射击怪物，与怪物战斗","notes":["Adult的ShoppingMall场景"],"images":[]}}</script>
+<script>
+"use strict";
+const REPORT = JSON.parse(document.getElementById("report-data").textContent);
+const STAGES = JSON.parse(document.getElementById("stage-data").textContent);
+const sourcePoints = REPORT.points;
+let compressedTime = 0;
+const compressedPoints = [];
+for (const band of REPORT.bands) {
+  const sourceStart = band.start;
+  const sourceEnd = band.end;
+  const duration = sourceEnd - sourceStart;
+  for (const point of sourcePoints) {
+    if (point[0] >= sourceStart && point[0] <= sourceEnd) {
+      compressedPoints.push([compressedTime + point[0] - sourceStart, point[1]]);
+    }
+  }
+  band.start = compressedTime;
+  band.end = compressedTime + duration;
+  compressedTime = band.end;
+}
+REPORT.points = compressedPoints;
+REPORT.span = compressedTime;
+const NS = "http://www.w3.org/2000/svg";
+const byId = id => document.getElementById(id);
+const make = (name, attrs = {}, text = "") => {
+  const node = document.createElementNS(NS, name);
+  for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, value);
+  if (text) node.textContent = text;
+  return node;
+};
+
+document.title = REPORT.title;
+byId("title").textContent = REPORT.title;
+
+const stageTabs = [];
+const stageColors = Object.fromEntries(REPORT.bands.map(band => [band.label, band.color]));
+
+function showStage(label) {
+  const detail = STAGES[label];
+  if (!detail) return;
+  for (const tab of stageTabs) {
+    tab.setAttribute("aria-pressed", String(tab.dataset.stage === label));
+  }
+  const panel = byId("stage-detail");
+  panel.style.setProperty("--detail-color", `var(--${stageColors[label] || "s2"})`);
+  byId("stage-detail-title").textContent = label;
+  byId("stage-description").textContent = detail.description;
+
+  const notes = byId("stage-notes");
+  notes.replaceChildren();
+  for (const noteText of detail.notes) {
+    const note = document.createElement("p");
+    note.className = "stage-note";
+    const noteLabel = document.createElement("strong");
+    noteLabel.textContent = "备注";
+    note.append(noteLabel, document.createTextNode(noteText));
+    notes.append(note);
+  }
+
+  const media = byId("stage-media");
+  media.replaceChildren();
+  for (const image of detail.images) {
+    const figure = document.createElement("figure");
+    const img = document.createElement("img");
+    img.className = "stage-image";
+    img.src = image.src;
+    img.alt = image.alt;
+    img.loading = "lazy";
+    const caption = document.createElement("figcaption");
+    caption.textContent = image.caption;
+    figure.append(img, caption);
+    media.append(figure);
+  }
+  const hasMedia = detail.images.length > 0;
+  media.hidden = !hasMedia;
+  panel.classList.toggle("has-media", hasMedia);
+}
+
+for (const item of REPORT.averages) {
+  const tile = document.createElement("button");
+  tile.type = "button";
+  tile.className = "tile";
+  tile.dataset.stage = item.label;
+  tile.setAttribute("aria-controls", "stage-detail");
+  tile.setAttribute("aria-pressed", "false");
+  tile.setAttribute("aria-label", `${item.label}，平均 ${item.value.toFixed(1)} FPS，查看阶段说明`);
+  const label = document.createElement("div");
+  label.className = "label";
+  label.textContent = item.label;
+  const value = document.createElement("div");
+  value.className = "value";
+  value.append(document.createTextNode(item.value.toFixed(1)));
+  const unit = document.createElement("span");
+  unit.className = "unit";
+  unit.textContent = "FPS";
+  value.append(unit);
+  const sample = document.createElement("div");
+  sample.className = "sample";
+  sample.textContent = item.label === "ENTER_SCENE" ? "统计时间 70.9s" : "统计时间 100s";
+  tile.append(label, value, sample);
+  tile.addEventListener("click", () => showStage(item.label));
+  tile.addEventListener("keydown", event => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const direction = event.key === "ArrowRight" ? 1 : -1;
+    const index = stageTabs.indexOf(tile);
+    const next = stageTabs[(index + direction + stageTabs.length) % stageTabs.length];
+    next.focus();
+    showStage(next.dataset.stage);
+  });
+  stageTabs.push(tile);
+  byId("averages").append(tile);
+}
+showStage(REPORT.averages[0].label);
+
+const lineLegend = document.createElement("span");
+lineLegend.className = "legend-item";
+const lineSwatch = document.createElement("span");
+lineSwatch.className = "swatch";
+lineSwatch.style.background = "var(--accent)";
+lineLegend.append(lineSwatch, document.createTextNode("FPS"));
+byId("legend").append(lineLegend);
+for (const band of REPORT.bands) {
+  const item = document.createElement("span");
+  item.className = "legend-item";
+  const swatch = document.createElement("span");
+  swatch.className = "swatch";
+  swatch.style.background = `var(--${band.color})`;
+  item.append(swatch, document.createTextNode(band.label));
+  byId("legend").append(item);
+}
+
+const svg = byId("fps-chart");
+const W = 1000;
+const H = 390;
+const margin = {left: 54, right: 18, top: 34, bottom: 42};
+const plotW = W - margin.left - margin.right;
+const plotH = H - margin.top - margin.bottom;
+const yMax = Math.max(90, Math.ceil(Math.max(...REPORT.points.map(point => point[1])) / 10) * 10);
+const xOf = value => margin.left + (value / REPORT.span) * plotW;
+const yOf = value => margin.top + (1 - Math.min(value, yMax) / yMax) * plotH;
+
+const defs = make("defs");
+const gradient = make("linearGradient", {id: "area-fill", x1: "0", y1: "0", x2: "0", y2: "1"});
+gradient.append(
+  make("stop", {offset: "0", "stop-color": "var(--accent)", "stop-opacity": "0.24"}),
+  make("stop", {offset: "1", "stop-color": "var(--accent)", "stop-opacity": "0.02"})
+);
+const clip = make("clipPath", {id: "plot-clip"});
+clip.append(make("rect", {x: margin.left, y: margin.top, width: plotW, height: plotH}));
+defs.append(gradient, clip);
+svg.append(defs);
+
+const plot = make("g", {"clip-path": "url(#plot-clip)"});
+for (const band of REPORT.bands) {
+  const x = xOf(band.start);
+  const width = Math.max(0, xOf(band.end) - x);
+  plot.append(make("rect", {
+    x, y: margin.top, width, height: plotH,
+    fill: `var(--${band.color})`, opacity: "0.075"
+  }));
+  if (band.start > 0) {
+    plot.append(make("line", {
+      x1: x, y1: margin.top, x2: x, y2: H - margin.bottom,
+      stroke: "var(--baseline)", "stroke-width": "1", "stroke-dasharray": "4 4"
+    }));
+  }
+}
+svg.append(plot);
+
+for (let fps = 0; fps <= yMax; fps += 30) {
+  const y = yOf(fps);
+  svg.append(make("line", {
+    x1: margin.left, y1: y, x2: W - margin.right, y2: y,
+    stroke: fps === 0 ? "var(--baseline)" : "var(--grid)", "stroke-width": "1",
+    "stroke-dasharray": fps === 30 || fps === 60 ? "5 5" : "0"
+  }));
+  svg.append(make("text", {x: margin.left - 9, y: y + 4, "text-anchor": "end", class: "axis-label"}, `${fps}`));
+}
+
+const tickStep = REPORT.span <= 180 ? 30 : 60;
+for (let second = 0; second <= REPORT.span; second += tickStep) {
+  const x = xOf(second);
+  svg.append(make("line", {x1: x, y1: H - margin.bottom, x2: x, y2: H - margin.bottom + 5, stroke: "var(--baseline)"}));
+  svg.append(make("text", {x, y: H - 15, "text-anchor": "middle", class: "axis-label"}, `${second}s`));
+}
+
+for (const band of REPORT.bands) {
+  const center = (xOf(band.start) + xOf(band.end)) / 2;
+  svg.append(make("text", {x: center, y: 22, "text-anchor": "middle", class: "band-label"}, band.label));
+}
+
+const linePoints = REPORT.points.map(point => `${xOf(point[0]).toFixed(2)},${yOf(point[1]).toFixed(2)}`);
+const areaPoints = [
+  `${xOf(REPORT.points[0][0]).toFixed(2)},${(H - margin.bottom).toFixed(2)}`,
+  ...linePoints,
+  `${xOf(REPORT.points.at(-1)[0]).toFixed(2)},${(H - margin.bottom).toFixed(2)}`
+].join(" ");
+plot.append(make("polygon", {points: areaPoints, fill: "url(#area-fill)"}));
+plot.append(make("polyline", {
+  points: linePoints.join(" "), fill: "none", stroke: "var(--accent)",
+  "stroke-width": "1.65", "stroke-linejoin": "round", "stroke-linecap": "round"
+}));
+
+const cross = make("line", {
+  y1: margin.top, y2: H - margin.bottom, stroke: "var(--ink-2)",
+  "stroke-width": "1", "stroke-dasharray": "3 3", opacity: "0"
+});
+const dot = make("circle", {r: "4", fill: "var(--accent)", stroke: "var(--surface)", "stroke-width": "2", opacity: "0"});
+const hit = make("rect", {x: margin.left, y: margin.top, width: plotW, height: plotH, fill: "transparent"});
+svg.append(cross, dot, hit);
+
+const tip = byId("tip");
+const hideTip = () => {
+  cross.setAttribute("opacity", "0");
+  dot.setAttribute("opacity", "0");
+  tip.style.opacity = "0";
+};
+hit.addEventListener("pointermove", event => {
+  const bounds = svg.getBoundingClientRect();
+  const localX = (event.clientX - bounds.left) / bounds.width * W;
+  const second = Math.max(0, Math.min(REPORT.span, (localX - margin.left) / plotW * REPORT.span));
+  let nearest = REPORT.points[0];
+  for (const point of REPORT.points) {
+    if (Math.abs(point[0] - second) < Math.abs(nearest[0] - second)) nearest = point;
+  }
+  const x = xOf(nearest[0]);
+  const y = yOf(nearest[1]);
+  cross.setAttribute("x1", x);
+  cross.setAttribute("x2", x);
+  cross.setAttribute("opacity", "1");
+  dot.setAttribute("cx", x);
+  dot.setAttribute("cy", y);
+  dot.setAttribute("opacity", "1");
+  const activeBand = REPORT.bands.find(band => nearest[0] >= band.start && nearest[0] <= band.end);
+  const localSecond = activeBand ? nearest[0] - activeBand.start : nearest[0];
+  const prefix = activeBand ? `${activeBand.label} · ` : "";
+  tip.textContent = `${prefix}${localSecond.toFixed(1)} 秒 · ${nearest[1].toFixed(1)} FPS`;
+  tip.style.left = `${Math.min(event.clientX + 12, innerWidth - 165)}px`;
+  tip.style.top = `${Math.max(8, event.clientY - 38)}px`;
+  tip.style.opacity = "1";
+});
+hit.addEventListener("pointerleave", hideTip);
+svg.addEventListener("blur", hideTip);
+</script>
+</body>
+</html>
